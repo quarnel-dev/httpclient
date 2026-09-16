@@ -1,4 +1,4 @@
-import type { HttpClientOptions, RequestOptions, HttpMethod, HttpHeaders } from './types/httpClient.types.js'
+import type { HttpClientOptions, RequestOptions, HttpMethod, HttpHeaders, RequestBody } from './types/httpClient.types.js'
 
 export class HttpClient {
   private readonly baseUrl: string
@@ -30,6 +30,50 @@ export class HttpClient {
   }
 
   private async request<T>(method: HttpMethod, url: string, body: unknown, options: RequestOptions = {}): Promise<T> {
-    throw new Error('not implemented')
+    const { headers: optionHeaders, ...restOptions } = options
+
+    const fullUrl = this.baseUrl ? new URL(url, this.baseUrl).toString() : url
+
+    const mergedHeaders = new Headers(this.defaultHeaders)
+    if (optionHeaders) {
+      new Headers(optionHeaders).forEach((value, key) => {
+        mergedHeaders.set(key, value)
+      })
+    }
+
+    let finalBody: RequestBody | undefined
+
+    if (body !== undefined) {
+      const isRawBody =
+        body instanceof FormData || body instanceof Blob || body instanceof URLSearchParams || typeof body === 'string'
+
+      if (isRawBody) {
+        finalBody = body as RequestBody
+      } else {
+        finalBody = JSON.stringify(body)
+        if (!mergedHeaders.has('Content-Type')) {
+          mergedHeaders.set('Content-Type', 'application/json')
+        }
+      }
+    }
+
+    const response = await fetch(fullUrl, {
+      ...restOptions,
+      method,
+      headers: mergedHeaders,
+      ...(finalBody !== undefined ? { body: finalBody } : {}),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    const contentType = response.headers.get('Content-Type') ?? ''
+
+    if (contentType.includes('application/json')) {
+      return (await response.json()) as T
+    }
+
+    return (await response.text()) as T
   }
 }
