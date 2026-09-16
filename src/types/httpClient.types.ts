@@ -10,3 +10,5 @@ export interface RequestOptions extends Omit<RequestInit, 'body' | 'method' | 'h
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export type RequestBody = string | FormData | Blob | URLSearchParams
