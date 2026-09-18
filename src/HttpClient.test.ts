@@ -43,6 +43,54 @@ describe('HttpClient', () => {
 
       expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/users/1', expect.objectContaining({ method: 'GET' }))
     })
+
+    it('preserves baseURL path when joining with relative url', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com/api/v1' })
+
+      await client.get('/users')
+
+      expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/api/v1/users', expect.objectContaining({ method: 'GET' }))
+    })
+
+    it('joins baseURL with trailing slash and url without leading slash', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com/api/v1/' })
+
+      await client.get('users')
+
+      expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/api/v1/users', expect.objectContaining({ method: 'GET' }))
+    })
+
+    it('joins baseURL and url both without slashes correctly', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com/api/v1' })
+
+      await client.get('users')
+
+      expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/api/v1/users', expect.objectContaining({ method: 'GET' }))
+    })
+
+    it('absolute url ignores baseURL', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('https://other.example.com/resource')
+
+      expect(fetchMock).toHaveBeenCalledWith('https://other.example.com/resource', expect.objectContaining({ method: 'GET' }))
+    })
+
+    it('preserves query string in url when joining with baseURL', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com/api/v1' })
+
+      await client.get('/users?page=2')
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.example.com/api/v1/users?page=2',
+        expect.objectContaining({ method: 'GET' })
+      )
+    })
   })
 
   describe('HTTP methods', () => {
@@ -259,6 +307,228 @@ describe('HttpClient', () => {
 
       const call = fetchMock.mock.calls[0]?.[1]
       expect(call.signal).toBe(controller.signal)
+    })
+  })
+
+  describe('HttpClient edge cases', () => {
+    let fetchMock: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+    })
+
+    it('handles 204 No Content without throwing on empty body', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 204, statusText: 'No Content' }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.delete('/resource/1')).resolves.toBe('')
+    })
+
+    it('handles 205 Reset Content without throwing on empty body', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 205, statusText: 'Reset Content' }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.post('/reset')).resolves.toBe('')
+    })
+
+    it('handles 200 with empty body and JSON content-type gracefully', async () => {
+      fetchMock.mockResolvedValue(new Response('', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/empty')).rejects.toThrow()
+    })
+
+    it('does not set Content-Type for string body', async () => {
+      fetchMock.mockResolvedValue(textResponse('ok'))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.post('/raw', 'hello')
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect((call.headers as Headers).has('Content-Type')).toBe(false)
+    })
+
+    it('serializes null body as JSON "null"', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.post('/resource', null)
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.body).toBe('null')
+      expect((call.headers as Headers).get('Content-Type')).toBe('application/json')
+    })
+
+    it('serializes array body as JSON', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.post('/batch', [1, 2, 3])
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.body).toBe('[1,2,3]')
+      expect((call.headers as Headers).get('Content-Type')).toBe('application/json')
+    })
+
+    it('serializes number body as JSON', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.post('/count', 42)
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.body).toBe('42')
+    })
+
+    it('does not mutate default headers after request with per-request headers', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })))
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        headers: { Authorization: 'Bearer default' },
+      })
+
+      await client.get('/a', { headers: { Authorization: 'Bearer override', 'X-Extra': '1' } })
+      await client.get('/b')
+
+      const firstCall = fetchMock.mock.calls[0]?.[1]
+      const secondCall = fetchMock.mock.calls[1]?.[1]
+
+      expect((firstCall.headers as Headers).get('Authorization')).toBe('Bearer override')
+      expect((firstCall.headers as Headers).get('X-Extra')).toBe('1')
+
+      expect((secondCall.headers as Headers).get('Authorization')).toBe('Bearer default')
+      expect((secondCall.headers as Headers).has('X-Extra')).toBe(false)
+    })
+
+    it('accepts Headers instance as per-request headers', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const headers = new Headers({ 'X-From-Headers': 'yes' })
+      await client.get('/resource', { headers })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect((call.headers as Headers).get('X-From-Headers')).toBe('yes')
+    })
+
+    it('accepts array of tuples as per-request headers', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/resource', { headers: [['X-From-Array', 'yes']] })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect((call.headers as Headers).get('X-From-Array')).toBe('yes')
+    })
+
+    it('parses JSON response with charset parameter in Content-Type', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        })
+      )
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource')).resolves.toEqual({ ok: true })
+    })
+
+    it('throws on invalid JSON when Content-Type is application/json', async () => {
+      fetchMock.mockResolvedValue(
+        new Response('not-json{', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/broken')).rejects.toThrow()
+    })
+
+    it('propagates AbortError as-is without wrapping', async () => {
+      const abortError = new DOMException('The operation was aborted.', 'AbortError')
+      fetchMock.mockRejectedValue(abortError)
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource')).rejects.toMatchObject({ name: 'AbortError' })
+    })
+
+    it('uses url as-is when baseURL is empty string', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: '' })
+
+      await client.get('https://api.example.com/users')
+
+      expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/users', expect.objectContaining({ method: 'GET' }))
+    })
+
+    it('does not send body for GET even if body argument is passed internally', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/resource')
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect('body' in call).toBe(false)
+    })
+
+    it('overrides default Content-Type with per-request one for JSON body', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({
+        baseURL: 'https://api.example.com',
+        headers: { 'Content-Type': 'application/vnd.api+json' },
+      })
+
+      await client.post('/resource', { a: 1 })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect((call.headers as Headers).get('Content-Type')).toBe('application/vnd.api+json')
+    })
+
+    it('sets Content-Type application/json when body is JSON and no header provided', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.post('/resource', { a: 1 })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect((call.headers as Headers).get('Content-Type')).toBe('application/json')
+    })
+
+    it('does not include undefined body in request init', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.post('/resource', undefined)
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect('body' in call).toBe(false)
+    })
+
+    it('forwards RequestInit options like cache and credentials', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/resource', { cache: 'no-cache', credentials: 'include' })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.cache).toBe('no-cache')
+      expect(call.credentials).toBe('include')
+    })
+
+    it('supports multiple sequential requests with different methods', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/a')
+      await client.post('/b', { x: 1 })
+      await client.delete('/c')
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('GET')
+      expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('POST')
+      expect(fetchMock.mock.calls[2]?.[1]?.method).toBe('DELETE')
     })
   })
 })
