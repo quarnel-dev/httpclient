@@ -32,7 +32,7 @@ export class HttpClient {
   private async request<T>(method: HttpMethod, url: string, body: unknown, options: RequestOptions = {}): Promise<T> {
     const { headers: optionHeaders, ...restOptions } = options
 
-    const fullUrl = this.baseUrl ? new URL(url, this.baseUrl).toString() : url
+    const fullUrl = this.buildUrl(url)
 
     const mergedHeaders = new Headers(this.defaultHeaders)
     if (optionHeaders) {
@@ -75,5 +75,16 @@ export class HttpClient {
     }
 
     return (await response.text()) as T
+  }
+
+  private buildUrl(url: string) {
+    if (!this.baseUrl) return url
+
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url
+
+    const base = this.baseUrl.replace(/\/+$/, '')
+    const path = url.replace(/^\/+/, '')
+
+    return path ? `${base}/${path}` : base
   }
 }
