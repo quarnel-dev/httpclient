@@ -189,6 +189,45 @@ describe('HttpClient', () => {
       expect(call.body).toBe(params)
     })
 
+    it('passes ArrayBuffer body as-is without JSON serialization', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const buffer = new Uint8Array([1, 2, 3]).buffer
+
+      await client.post('/upload', buffer)
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.body).toBe(buffer)
+      expect((call.headers as Headers).has('Content-Type')).toBe(false)
+    })
+
+    it('passes ArrayBufferView (TypedArray) body as-is without JSON serialization', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const view = new Uint8Array([1, 2, 3])
+
+      await client.post('/upload', view)
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.body).toBe(view)
+      expect((call.headers as Headers).has('Content-Type')).toBe(false)
+    })
+
+    it('passes ReadableStream body as-is without JSON serialization', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const stream = new ReadableStream()
+
+      await client.post('/upload', stream)
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.body).toBe(stream)
+      expect((call.headers as Headers).has('Content-Type')).toBe(false)
+    })
+
     it('does not include body key when no body is provided', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
       const client = new HttpClient({ baseURL: 'https://api.example.com' })
