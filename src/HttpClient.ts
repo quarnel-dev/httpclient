@@ -2,6 +2,7 @@ import { HttpError } from './errors/HttpError.error.js'
 import { isRawBody } from './utils/isRawBody.util.js'
 import { defaultRetryOn } from './utils/defaultRetryOn.util.js'
 import { delay } from './utils/delay.util.js'
+import { createTimeoutSignal } from './utils/createTimeoutSignal.util.js'
 
 import type { HttpClientOptions, RequestOptions, HttpMethod, HttpHeaders, RequestBody } from './types/httpClient.types.js'
 import type { RetryOptions } from './types/retry.types.js'
@@ -10,11 +11,13 @@ export class HttpClient {
   private readonly baseUrl: string
   private readonly defaultHeaders: HttpHeaders
   private readonly defaultRetry?: RetryOptions | undefined
+  private readonly defaultTimeout?: number | undefined
 
   constructor(options: HttpClientOptions = {}) {
     this.baseUrl = options.baseURL ?? ''
     this.defaultHeaders = options.headers ?? {}
     this.defaultRetry = options.retry
+    this.defaultTimeout = options.timeout
   }
 
   get<T>(url: string, options?: RequestOptions): Promise<T> {
@@ -38,7 +41,7 @@ export class HttpClient {
   }
 
   private async request<T>(method: HttpMethod, url: string, body: unknown, options: RequestOptions = {}): Promise<T> {
-    const { headers: optionHeaders, retry: retryOption, ...restOptions } = options
+    const { headers: optionHeaders, retry: retryOption, timeout: timeoutOption, ...restOptions } = options
 
     const fullUrl = this.buildUrl(url)
 
@@ -63,12 +66,14 @@ export class HttpClient {
     }
 
     const retry = retryOption === false ? undefined : (retryOption ?? this.defaultRetry)
+    const timeout = timeoutOption ?? this.defaultTimeout
 
     const fetchInit: RequestInit = {
       ...restOptions,
       method,
       headers: mergedHeaders,
       ...(finalBody !== undefined ? { body: finalBody } : {}),
+      ...(timeout !== undefined ? { signal: createTimeoutSignal(timeout, restOptions.signal) } : {}),
     }
 
     return this.sendWithRetry<T>(fullUrl, fetchInit, retry, 1)
@@ -92,7 +97,10 @@ export class HttpClient {
         throw err
       }
 
-      const error = new HttpError('Network request failed', { url: fullUrl, cause: err })
+      const error =
+        err instanceof DOMException && err.name === 'TimeoutError'
+          ? new HttpError('Request timed out', { url: fullUrl, cause: err, timeout: true })
+          : new HttpError('Network request failed', { url: fullUrl, cause: err })
 
       if (attemptNumber < attempts && retryOn(error, attemptNumber)) {
         if (retry?.delay) await delay(retry.delay)
