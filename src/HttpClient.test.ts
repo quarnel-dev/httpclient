@@ -290,10 +290,16 @@ describe('HttpClient', () => {
     })
 
     it('propagates network errors from fetch', async () => {
-      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+      const networkError = new TypeError('Failed to fetch')
+      fetchMock.mockRejectedValue(networkError)
       const client = new HttpClient({ baseURL: 'https://api.example.com' })
 
-      await expect(client.get('/resource')).rejects.toThrow('Failed to fetch')
+      await expect(client.get('/resource')).rejects.toMatchObject({
+        name: 'HttpError',
+        message: 'Network request failed',
+        status: undefined,
+        cause: networkError,
+      })
     })
   })
 
