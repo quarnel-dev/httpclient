@@ -6,11 +6,13 @@ export interface HttpClientOptions {
   baseURL?: string
   headers?: HttpHeaders
   retry?: RetryOptions
+  timeout?: number
 }
 
 export interface RequestOptions extends Omit<RequestInit, 'body' | 'method' | 'headers'> {
   headers?: HttpHeaders
   retry?: RetryOptions | false
+  timeout?: number
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
