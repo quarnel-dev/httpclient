@@ -4,4 +4,5 @@ export interface HttpErrorOptions {
   url: string
   body?: unknown
   cause?: unknown
+  timeout?: boolean
 }

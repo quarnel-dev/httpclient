@@ -5,6 +5,7 @@ export class HttpError extends Error {
   readonly statusText?: string | undefined
   readonly url: string
   readonly body?: unknown
+  readonly timeout: boolean
 
   constructor(message: string, options: HttpErrorOptions) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined)
@@ -14,6 +15,7 @@ export class HttpError extends Error {
     this.statusText = options.statusText
     this.url = options.url
     this.body = options.body
+    this.timeout = options.timeout ?? false
   }
 
   get isNetworkError(): boolean {
