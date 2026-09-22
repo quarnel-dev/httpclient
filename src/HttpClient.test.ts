@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { HttpClient } from './HttpClient.js'
 
 function jsonResponse(body: unknown, status = 200, statusText = 'OK') {
@@ -574,6 +574,172 @@ describe('HttpClient', () => {
       expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('GET')
       expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('POST')
       expect(fetchMock.mock.calls[2]?.[1]?.method).toBe('DELETE')
+    })
+  })
+
+  describe('retry', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('does not retry by default (single attempt)', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource')).rejects.toMatchObject({ status: 500 })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries on 5xx up to attempts count', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+        .mockResolvedValueOnce(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const promise = client.get('/resource', { retry: { attempts: 3, delay: 100 } })
+      await vi.runAllTimersAsync()
+
+      await expect(promise).resolves.toEqual({ ok: true })
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    })
+
+    it('throws after exhausting all attempts', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const promise = client.get('/resource', { retry: { attempts: 3, delay: 10 } })
+      const assertion = expect(promise).rejects.toMatchObject({ status: 500 })
+
+      await vi.runAllTimersAsync()
+      await assertion
+
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    })
+
+    it('retries on network errors', async () => {
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const promise = client.get('/resource', { retry: { attempts: 2, delay: 10 } })
+      await vi.runAllTimersAsync()
+
+      await expect(promise).resolves.toEqual({ ok: true })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries on 429', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 429, statusText: 'Too Many Requests' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const promise = client.get('/resource', { retry: { attempts: 2, delay: 10 } })
+      await vi.runAllTimersAsync()
+
+      await expect(promise).resolves.toEqual({ ok: true })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry on 4xx other than 429', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 404, statusText: 'Not Found' }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const promise = client.get('/resource', { retry: { attempts: 3, delay: 10 } })
+      const assertion = expect(promise).rejects.toMatchObject({ status: 404 })
+
+      await vi.runAllTimersAsync()
+      await assertion
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not retry on AbortError', async () => {
+      const abortError = new DOMException('The operation was aborted.', 'AbortError')
+      fetchMock.mockRejectedValue(abortError)
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource', { retry: { attempts: 3, delay: 10 } })).rejects.toMatchObject({
+        name: 'AbortError',
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('respects custom retryOn', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 400, statusText: 'Bad Request' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+      const retryOn = vi.fn(() => true)
+
+      const promise = client.get('/resource', { retry: { attempts: 2, delay: 10, retryOn } })
+      await vi.runAllTimersAsync()
+
+      await expect(promise).resolves.toEqual({ ok: true })
+      expect(retryOn).toHaveBeenCalledWith(expect.objectContaining({ status: 400 }), 1)
+    })
+
+    it('waits for delay between attempts', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const promise = client.get('/resource', { retry: { attempts: 2, delay: 1000 } })
+
+      await vi.advanceTimersByTimeAsync(999)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await promise
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('inherits retry options from constructor when method does not specify', async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com', retry: { attempts: 2, delay: 10 } })
+
+      const promise = client.get('/resource')
+      await vi.runAllTimersAsync()
+
+      await expect(promise).resolves.toEqual({ ok: true })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('method-level retry object fully overrides constructor retry', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com', retry: { attempts: 5, delay: 10 } })
+
+      const promise = client.get('/resource', { retry: { attempts: 2, delay: 10 } })
+      const assertion = expect(promise).rejects.toMatchObject({ status: 500 })
+
+      await vi.runAllTimersAsync()
+      await assertion
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('method-level retry: false disables retry even when constructor has retry', async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 500, statusText: 'Internal Server Error' }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com', retry: { attempts: 5, delay: 10 } })
+
+      await expect(client.get('/resource', { retry: false })).rejects.toMatchObject({ status: 500 })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     })
   })
 })
