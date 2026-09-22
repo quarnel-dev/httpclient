@@ -1,3 +1,4 @@
+import { HttpError } from './errors/HttpError.error.js'
 import type { HttpClientOptions, RequestOptions, HttpMethod, HttpHeaders, RequestBody } from './types/httpClient.types.js'
 
 export class HttpClient {
@@ -57,15 +58,31 @@ export class HttpClient {
       }
     }
 
-    const response = await fetch(fullUrl, {
-      ...restOptions,
-      method,
-      headers: mergedHeaders,
-      ...(finalBody !== undefined ? { body: finalBody } : {}),
-    })
+    let response: Response
+
+    try {
+      response = await fetch(fullUrl, {
+        ...restOptions,
+        method,
+        headers: mergedHeaders,
+        ...(finalBody !== undefined ? { body: finalBody } : {}),
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err
+      }
+      throw new HttpError('Network request failed', {
+        url: fullUrl,
+        cause: err,
+      })
+    }
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      throw new HttpError(`HTTP ${response.status}: ${response.statusText}`, {
+        status: response.status,
+        statusText: response.statusText,
+        url: fullUrl,
+      })
     }
 
     const contentType = response.headers.get('Content-Type') ?? ''
