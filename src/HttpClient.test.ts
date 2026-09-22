@@ -742,4 +742,115 @@ describe('HttpClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('timeout', () => {
+    it('does not attach signal when no timeout is set', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/resource')
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.signal).toBeUndefined()
+    })
+
+    it('attaches an AbortSignal when timeout is set', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/resource', { timeout: 5000 })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.signal).toBeInstanceOf(AbortSignal)
+    })
+
+    it('wraps TimeoutError into HttpError with timeout: true', async () => {
+      const timeoutError = new DOMException('The operation timed out.', 'TimeoutError')
+      fetchMock.mockRejectedValue(timeoutError)
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource', { timeout: 100 })).rejects.toMatchObject({
+        name: 'HttpError',
+        message: 'Request timed out',
+        timeout: true,
+        cause: timeoutError,
+      })
+    })
+
+    it('does not mark plain network errors as timeout', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource', { timeout: 100 })).rejects.toMatchObject({
+        timeout: false,
+      })
+    })
+
+    it('does not retry AbortError even when timeout and retry are both set', async () => {
+      const abortError = new DOMException('The operation was aborted.', 'AbortError')
+      fetchMock.mockRejectedValue(abortError)
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource', { timeout: 100, retry: { attempts: 3, delay: 10 } })).rejects.toMatchObject({
+        name: 'AbortError',
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries on TimeoutError like a network error', async () => {
+      const timeoutError = new DOMException('The operation timed out.', 'TimeoutError')
+      fetchMock.mockRejectedValueOnce(timeoutError).mockResolvedValueOnce(jsonResponse({ ok: true }))
+
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await expect(client.get('/resource', { timeout: 100, retry: { attempts: 2, delay: 10 } })).resolves.toEqual({
+        ok: true,
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('passes correct timeout value to AbortSignal.timeout', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      await client.get('/resource', { timeout: 5000 })
+
+      expect(timeoutSpy).toHaveBeenCalledWith(5000)
+      timeoutSpy.mockRestore()
+    })
+
+    it('method-level timeout value overrides constructor timeout value', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com', timeout: 1000 })
+
+      await client.get('/resource', { timeout: 5000 })
+
+      expect(timeoutSpy).toHaveBeenCalledWith(5000)
+      timeoutSpy.mockRestore()
+    })
+
+    it('inherits timeout from constructor when method does not specify it', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com', timeout: 1000 })
+
+      await client.get('/resource')
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.signal).toBeInstanceOf(AbortSignal)
+    })
+
+    it('combines timeout signal with user-provided signal', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+      const client = new HttpClient({ baseURL: 'https://api.example.com' })
+
+      const controller = new AbortController()
+      await client.get('/resource', { timeout: 5000, signal: controller.signal })
+
+      const call = fetchMock.mock.calls[0]?.[1]
+      expect(call.signal).toBeInstanceOf(AbortSignal)
+      expect(call.signal).not.toBe(controller.signal)
+    })
+  })
 })
