@@ -1,4 +1,6 @@
 import { HttpError } from './errors/HttpError.error.js'
+import { isRawBody } from './utils/isRawBody.util.js'
+
 import type { HttpClientOptions, RequestOptions, HttpMethod, HttpHeaders, RequestBody } from './types/httpClient.types.js'
 
 export class HttpClient {
@@ -45,11 +47,8 @@ export class HttpClient {
     let finalBody: RequestBody | undefined
 
     if (body !== undefined) {
-      const isRawBody =
-        body instanceof FormData || body instanceof Blob || body instanceof URLSearchParams || typeof body === 'string'
-
-      if (isRawBody) {
-        finalBody = body as RequestBody
+      if (isRawBody(body)) {
+        finalBody = body
       } else {
         finalBody = JSON.stringify(body)
         if (!mergedHeaders.has('Content-Type')) {
