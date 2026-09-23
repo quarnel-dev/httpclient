@@ -34,7 +34,7 @@ await client.post('/users', { name: 'Quarnel' })
 
 ### new HttpClient(options?)
 
-| Option    | Type           | Description                              |
+| Option    | Type           | Description                               |
 | --------- | -------------- | ----------------------------------------- |
 | `baseURL` | `string`       | Base URL prepended to relative paths      |
 | `headers` | `HttpHeaders`  | Default headers merged into every request |
@@ -57,14 +57,14 @@ client.delete(url, body?, options?)
 
 ```ts
 client.get('/resource', {
-  retry: { attempts: 3, delay: 300 }
+  retry: { attempts: 3, delay: 300 },
 })
 ```
 
-| Field      | Type                                          | Description                                      |
-| ---------- | ---------------------------------------------- | ------------------------------------------------- |
-| `attempts` | `number`                                       | Total attempts, including the first one           |
-| `delay`    | `number`                                       | Fixed delay between attempts, ms                  |
+| Field      | Type                                             | Description                                                |
+| ---------- | ------------------------------------------------ | ---------------------------------------------------------- |
+| `attempts` | `number`                                         | Total attempts, including the first one                    |
+| `delay`    | `number`                                         | Fixed delay between attempts, ms                           |
 | `retryOn`  | `(error: HttpError, attempt: number) => boolean` | Custom retry condition (default: network errors, 429, 5xx) |
 
 Method-level `retry` fully replaces the constructor's `retry` (no deep merge). Pass `retry: false` to disable retry for a single call.
@@ -93,4 +93,4 @@ try {
 }
 ```
 
-*Made with ❤️ by Quarnel*
+_Made with ❤️ by Quarnel_

@@ -57,7 +57,7 @@ client.delete(url, body?, options?)
 
 ```ts
 client.get('/resource', {
-retry: { attempts: 3, delay: 300 }
+  retry: { attempts: 3, delay: 300 },
 })
 ```
 
@@ -93,4 +93,4 @@ try {
 }
 ```
 
-*Made with ❤️ by Quarnel*
+_Made with ❤️ by Quarnel_
