@@ -93,4 +93,4 @@ try {
 }
 ```
 
-_Made with ❤️ by Quarnel_
+_Сделано с ❤️ от Quarnel_
