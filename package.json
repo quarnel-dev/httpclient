@@ -1,6 +1,6 @@
 {
   "name": "@quarnel/httpclient",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Isomorphic HTTP client built on native fetch, with zero dependencies, for Node.js and the browser",
   "type": "module",
   "exports": {
