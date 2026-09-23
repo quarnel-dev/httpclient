@@ -1,6 +1,6 @@
 # HttpClient (@quarnel/httpclient)
 
-[Read in English](README.md) | Русский
+[Читать на английском](README.md) | Русский
 
 Изоморфный HTTP-клиент на нативном `fetch`. Без зависимостей, без полифилов.
 
